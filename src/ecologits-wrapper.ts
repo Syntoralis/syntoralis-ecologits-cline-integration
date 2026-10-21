@@ -5,18 +5,20 @@ import * as path from "path"
 import { ImpactsOutput, llmImpacts } from "@ecologits/ecologits.js"
 
 /**
- * Configuration du logger EcoLogits.
+ * EcoLogits logger configuration.
  */
 export interface EcoLogitsConfig {
-  /** Chemin du fichier CSV de sortie (défaut: ~/ecologits-cline-log.csv) */
+  /** Output CSV file path (default: ~/syntoralis-ecologits-cline-log.csv) */
   csvPath?: string
-  /** Activer/désactiver le logging */
+  /** Enable/disable logging */
   enabled?: boolean
+  /** EcoLogits electricity mix zone (default: WOR/world). Ex: FRA, DE, US… */
+  electricityMixZone?: string
 }
 
-const DEFAULT_CSV_PATH = path.join(os.homedir(), "ecologits-cline-log.csv")
+const DEFAULT_CSV_PATH = path.join(os.homedir(), "syntoralis-ecologits-cline-log.csv")
 
-/** Mapping fournisseurs Cline → fournisseurs EcoLogits */
+/** Mapping Cline providers → EcoLogits providers */
 const PROVIDER_MAP: Record<string, string> = {
   anthropic: "anthropic",
   openai: "openai",
@@ -42,7 +44,7 @@ function valueToNumber(value: unknown): number {
 function initializeCsv(csvPath: string): void {
   if (!fs.existsSync(csvPath)) {
     const header =
-      "timestamp,provider,model,input_tokens,output_tokens,energy_kwh,gwp_kgco2eq,adpe_kgsbeq,wcf_m3\n"
+      "timestamp,provider,model,input_tokens,output_tokens,energy_kwh,gwp_kgco2eq,adpe_kgsbeq,wcf_l\n"
     fs.writeFileSync(csvPath, header, { encoding: "utf-8" })
   }
 }
@@ -52,10 +54,10 @@ function getEcoLogitsProvider(providerId: string): string {
 }
 
 /**
- * Calcule et écrit les impacts environnementaux d'un appel LLM dans un CSV.
+ * Computes and writes the environmental impacts of an LLM call in CSV.
  *
- * @param providerId   identifiant fournisseur (ex: "anthropic", "openai", "cline")
- * @param modelId      identifiant modèle (ex: "claude-sonnet-4-20250514")
+ * @param providerId   provider identifier (ex: "anthropic", "openai", "cline")
+ * @param modelId      model identifier (ex: "claude-sonnet-4-20250514")
  * @param inputTokens  tokens en entrée
  * @param outputTokens tokens générés
  * @param latencySec   latence de la requête en secondes
@@ -82,11 +84,12 @@ export async function logLlmImpacts(
       modelName: modelId,
       outputTokenCount: outputTokens,
       requestLatency: latencySec,
+      ...(config?.electricityMixZone ? { electricity_mix_zone: config.electricityMixZone } : {}),
     })
 
     if (impacts.hasErrors) {
       console.warn(
-        `[EcoLogits] Impacts indisponibles pour ${providerId}/${modelId}: ${impacts.errors
+        `[EcoLogits] Impacts unavailable for ${providerId}/${modelId}: ${impacts.errors
           ?.map((e) => (e instanceof Error ? e.message : String(e)))
           .join(", ")}`,
       )
@@ -97,18 +100,17 @@ export async function logLlmImpacts(
     const gwpKg = valueToNumber(impacts.gwp?.value)
     const adpeKg = valueToNumber(impacts.adpe?.value)
     const wcfLiters = valueToNumber(impacts.wcf?.value)
-    const wcfM3 = wcfLiters / 1000
 
-    const row = `${new Date().toISOString()},${providerId},${modelId},${inputTokens},${outputTokens},${energyKwh},${gwpKg},${adpeKg},${wcfM3}\n`
+    const row = `${new Date().toISOString()},${providerId},${modelId},${inputTokens},${outputTokens},${energyKwh},${gwpKg},${adpeKg},${wcfLiters}\n`
 
     fs.appendFileSync(csvPath, row, { encoding: "utf-8" })
-    console.log(`[EcoLogits] Métriques écrites → ${csvPath}`)
+    console.log(`[EcoLogits] Metrics written → ${csvPath}`)
   } catch (err) {
-    console.warn(`[EcoLogits] Échec du logging: ${err}`)
+    console.warn(`[EcoLogits] Logging failed: ${err}`)
   }
 }
 
-/** Type minimal pour un chunk de stream Cline */
+/** Minimal type for a Cline stream chunk */
 export interface ApiStreamChunk {
   type: string
   inputTokens?: number
@@ -116,7 +118,7 @@ export interface ApiStreamChunk {
   [key: string]: unknown
 }
 
-/** Type minimal pour le handler Cline */
+/** Minimal type for the Cline handler */
 export interface ClineApiHandlerLike {
   getModel(): { id: string; providerId?: string }
   createMessage(
@@ -127,12 +129,12 @@ export interface ClineApiHandlerLike {
 }
 
 /**
- * Wrappe un `ApiHandler` Cline pour intercepter les appels LLM et logger
- * automatiquement les impacts environnementaux via EcoLogits.
+ * Wraps a Cline `ApiHandler` to intercept LLM calls and log
+ * environmental impacts automatically via EcoLogits.
  *
- * @param handler  handler Cline brut
- * @param config   configuration EcoLogits
- * @returns        handler wrap-pé (même interface)
+ * @param handler  raw Cline handler
+ * @param config   EcoLogits configuration
+ * @returns        wrapped handler (same interface)
  */
 export function wrapApiHandler<T extends ClineApiHandlerLike>(
   handler: T,
@@ -182,3 +184,6 @@ export function wrapApiHandler<T extends ClineApiHandlerLike>(
 
   return handler
 }
+
+
+
