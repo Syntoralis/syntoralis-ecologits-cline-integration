@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Cline source (cloned by scripts/apply-patch.js — has its own .git)
+cline-source/
+
+# Protobuf artifacts
+protoc-extracted/
+protoc.zip
+
+# Lock files (keep package-lock.json, ignore bun.lock)
+bun.lock
+
+# Environment files
+.env
+.env.*
+!.env.example
+.secrets
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE / editor
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.code-workspace
+
+# Misc
+tmp/
+.tmp/
+.coverage
