@@ -149,6 +149,151 @@ function patchHomeHeader(targetDir) {
   console.log("[PATCH] HomeHeader.tsx modifié avec logos Syntoralis + Cline")
 }
 
+function patchAboutSection(targetDir) {
+  const aboutPath = path.join(
+    targetDir,
+    "apps",
+    "vscode",
+    "webview-ui",
+    "src",
+    "components",
+    "settings",
+    "sections",
+    "AboutSection.tsx",
+  )
+  let content = fs.readFileSync(aboutPath, "utf-8")
+
+  if (content.includes("Cline-Syntoralis is an AI coding assistant")) {
+    console.log("[PATCH] AboutSection.tsx déjà modifié, skip")
+    return
+  }
+
+  const originalDescription =
+    /<p>\s*An AI assistant that can use your CLI and Editor\.[\s\S]*?<\/p>/
+  if (!originalDescription.test(content)) {
+    throw new Error("Impossible de localiser la description d'origine dans AboutSection.tsx")
+  }
+  if (!content.includes("Cline v{version}")) {
+    throw new Error("Impossible de localiser le titre d'origine dans AboutSection.tsx")
+  }
+
+  content = content.replace("Cline v{version}", "Cline-Syntoralis v{version}")
+  content = content.replace(
+    originalDescription,
+    `<p>
+\t\t\t\t\t\tCline-Syntoralis is an AI coding assistant that works in your editor and command line. It can explore projects,
+\t\t\t\t\t\tedit files, use the browser, and run terminal commands after you approve them.
+\t\t\t\t\t</p>
+\t\t\t\t\t<p>
+\t\t\t\t\t\tThis edition uses{" "}
+\t\t\t\t\t\t<VSCodeLink href="https://ecologits.ai/latest/">EcoLogits</VSCodeLink> to estimate the energy use and
+\t\t\t\t\t\tenvironmental impacts of LLM requests, including greenhouse-gas emissions, resource depletion, and water
+\t\t\t\t\t\tconsumption. Estimates are recorded in a local CSV file.
+\t\t\t\t\t</p>`,
+  )
+  content = content.replace(
+    /\n(?=\t{5}<h3 className="text-md font-semibold">Development<\/h3>)/,
+    `
+\t\t\t\t\t<h3 className="text-md font-semibold">About Syntoralis</h3>
+\t\t\t\t\t<p>
+\t\t\t\t\t\tSyntoralis develops responsible digital solutions. Learn more on the{" "}
+\t\t\t\t\t\t<VSCodeLink href="https://www.syntoralis.eu/index-en.html">Syntoralis website</VSCodeLink> or view the{" "}
+\t\t\t\t\t\t<VSCodeLink href="https://github.com/Syntoralis/cline-syntoralis">Cline-Syntoralis source code</VSCodeLink>.
+\t\t\t\t\t</p>
+\t\t\t\t\t`,
+  )
+
+  fs.writeFileSync(aboutPath, content, "utf-8")
+  console.log("[PATCH] AboutSection.tsx modifié avec les descriptions et liens")
+}
+
+function patchSyntoralisFeatureSettings(targetDir) {
+  const webviewDir = path.join(targetDir, "apps", "vscode", "webview-ui", "src")
+  const templatePath = path.join(__dirname, "templates", "SyntoralisFeatureSettings.tsx")
+  const sectionPath = path.join(
+    webviewDir,
+    "components",
+    "settings",
+    "sections",
+    "FeatureSettingsSection.tsx",
+  )
+  const sectionComponentPath = path.join(
+    webviewDir,
+    "components",
+    "settings",
+    "sections",
+    "SyntoralisFeatureSettings.tsx",
+  )
+  const webviewMessagePath = path.join(targetDir, "apps", "vscode", "src", "shared", "WebviewMessage.ts")
+  const webviewProviderPath = path.join(
+    targetDir,
+    "apps",
+    "vscode",
+    "src",
+    "hosts",
+    "vscode",
+    "VscodeWebviewProvider.ts",
+  )
+
+  if (!fs.existsSync(sectionComponentPath)) {
+    fs.copyFileSync(templatePath, sectionComponentPath)
+    console.log("[PATCH] SyntoralisFeatureSettings.tsx copié dans Cline")
+  }
+
+  let sectionContent = fs.readFileSync(sectionPath, "utf-8")
+  if (!sectionContent.includes("SyntoralisFeatureSettings")) {
+    const importAnchor = 'import Section from "../Section"\n'
+    const advancedAnchor = "\n\t\t\t\t{/* Advanced */}"
+    if (!sectionContent.includes(importAnchor) || !sectionContent.includes(advancedAnchor)) {
+      throw new Error("Impossible de localiser les points d'insertion dans FeatureSettingsSection.tsx")
+    }
+    sectionContent = sectionContent.replace(
+      importAnchor,
+      `${importAnchor}import SyntoralisFeatureSettings from "./SyntoralisFeatureSettings"\n`,
+    )
+    sectionContent = sectionContent.replace(
+      advancedAnchor,
+      "\n\t\t\t\t<SyntoralisFeatureSettings />\n" + advancedAnchor,
+    )
+    fs.writeFileSync(sectionPath, sectionContent, "utf-8")
+    console.log("[PATCH] Syntoralis settings ajoutés à Feature Settings")
+  } else {
+    console.log("[PATCH] Feature Settings Syntoralis déjà modifié, skip")
+  }
+
+  let webviewMessage = fs.readFileSync(webviewMessagePath, "utf-8")
+  if (!webviewMessage.includes('"open_ecologits_settings"')) {
+    const messageType = 'type: "grpc_request" | "grpc_request_cancel"'
+    if (!webviewMessage.includes(messageType)) {
+      throw new Error("Impossible de localiser le type de message WebviewMessage")
+    }
+    webviewMessage = webviewMessage.replace(
+      messageType,
+      'type: "grpc_request" | "grpc_request_cancel" | "open_ecologits_settings"',
+    )
+    fs.writeFileSync(webviewMessagePath, webviewMessage, "utf-8")
+    console.log("[PATCH] Message d'ouverture des réglages EcoLogits ajouté")
+  }
+
+  let webviewProvider = fs.readFileSync(webviewProviderPath, "utf-8")
+  if (!webviewProvider.includes('case "open_ecologits_settings"')) {
+    const defaultCase = '\t\t\tdefault: {\n\t\t\t\tLogger.error("Received unhandled WebviewMessage type:", JSON.stringify(message))'
+    if (!webviewProvider.includes(defaultCase)) {
+      throw new Error("Impossible de localiser le dispatch WebviewMessage")
+    }
+    webviewProvider = webviewProvider.replace(
+      defaultCase,
+      '\t\t\tcase "open_ecologits_settings": {\n' +
+        '\t\t\t\tawait vscode.commands.executeCommand("workbench.action.openSettings", "@id:cline.ecologits")\n' +
+        "\t\t\t\tbreak\n" +
+        "\t\t\t}\n" +
+        defaultCase,
+    )
+    fs.writeFileSync(webviewProviderPath, webviewProvider, "utf-8")
+    console.log("[PATCH] Action hôte d'ouverture des réglages EcoLogits ajoutée")
+  }
+}
+
 function main() {
   const targetDir = process.argv[2] || path.join(process.cwd(), "cline-source")
   console.log("========================================")
@@ -165,6 +310,8 @@ function main() {
   patchPanelTitle(clinePkgPath)
   copySyntoralisLogo(targetDir)
   patchHomeHeader(targetDir)
+  patchAboutSection(targetDir)
+  patchSyntoralisFeatureSettings(targetDir)
   console.log("\n========================================")
   console.log("  PATCH APPLIQUÉ AVEC SUCCÈS")
   console.log("========================================")
