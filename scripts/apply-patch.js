@@ -118,6 +118,14 @@ function patchHomeHeader(targetDir) {
   )
   let content = fs.readFileSync(headerPath, "utf-8")
   if (content.includes("SyntoralisLogo")) {
+    const updatedContent = content.replace(
+      '<SyntoralisLogo className="size-20"',
+      '<SyntoralisLogo className="size-16"',
+    )
+    if (updatedContent !== content) {
+      fs.writeFileSync(headerPath, updatedContent, "utf-8")
+      console.log("[PATCH] Taille du logo Syntoralis ajustée")
+    }
     console.log("[PATCH] HomeHeader.tsx déjà modifié, skip")
     return
   }
@@ -134,7 +142,7 @@ function patchHomeHeader(targetDir) {
 
   content = content.replace(
     `<div className="my-7">\n\t\t\t\t<LogoComponent className="size-20" environment={environment} />\n\t\t\t</div>`,
-    `<div className="my-7 flex items-center justify-center gap-3">\n\t\t\t\t<SyntoralisLogo className="size-20" environment={environment} />\n\t\t\t\t<ClineLogoComponent className="size-20" environment={environment} />\n\t\t\t</div>`
+    `<div className="my-7 flex items-center justify-center gap-3">\n\t\t\t\t<SyntoralisLogo className="size-16" environment={environment} />\n\t\t\t\t<ClineLogoComponent className="size-20" environment={environment} />\n\t\t\t</div>`
   )
 
   fs.writeFileSync(headerPath, content, "utf-8")
