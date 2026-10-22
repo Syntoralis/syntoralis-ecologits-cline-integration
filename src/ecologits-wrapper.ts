@@ -2,7 +2,7 @@ import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
 // @ts-ignore — resolved at install time in the Cline workspace
-import { ImpactsOutput, llmImpacts } from "@ecologits/ecologits.js"
+import { ImpactsOutput, llmImpacts, models } from "@ecologits/ecologits.js"
 
 /**
  * EcoLogits logger configuration.
@@ -14,6 +14,11 @@ export interface EcoLogitsConfig {
   enabled?: boolean
   /** EcoLogits electricity mix zone (default: WOR/world). Ex: FRA, DE, US… */
   electricityMixZone?: string
+  /** Model used to estimate impacts when the requested model is unknown to EcoLogits. */
+  proxyModel?: string
+  logger?: {
+    warn(message: string): void
+  }
 }
 
 const DEFAULT_CSV_PATH = path.join(os.homedir(), "syntoralis-ecologits-cline-log.csv")
@@ -44,13 +49,34 @@ function valueToNumber(value: unknown): number {
 function initializeCsv(csvPath: string): void {
   if (!fs.existsSync(csvPath)) {
     const header =
-      "timestamp,provider,model,input_tokens,output_tokens,energy_kwh,gwp_kgco2eq,adpe_kgsbeq,wcf_l\n"
+      "timestamp,provider,model,input_tokens,output_tokens,energy_kwh,gwp_kgco2eq,adpe_kgsbeq,wcf_l,unknown_model\n"
     fs.writeFileSync(csvPath, header, { encoding: "utf-8" })
+    return
+  }
+
+  const content = fs.readFileSync(csvPath, "utf-8")
+  const lineEnding = content.includes("\r\n") ? "\r\n" : "\n"
+  const [header, ...rows] = content.split(/\r?\n/)
+  if (header && !header.endsWith(",unknown_model")) {
+    fs.writeFileSync(
+      csvPath,
+      [`${header},unknown_model`, ...rows.map((row) => (row ? `${row},` : row))].join(lineEnding),
+      { encoding: "utf-8" },
+    )
   }
 }
 
 function getEcoLogitsProvider(providerId: string): string {
   return PROVIDER_MAP[providerId] || "openai"
+}
+
+function warn(config: EcoLogitsConfig | undefined, message: string): void {
+  if (config?.logger) {
+    config.logger.warn(message)
+    return
+  }
+
+  process.emitWarning(message)
 }
 
 /**
@@ -79,16 +105,22 @@ export async function logLlmImpacts(
     initializeCsv(csvPath)
 
     const ecoProvider = getEcoLogitsProvider(providerId)
+    const registeredModel = models.findModel(ecoProvider, modelId)
+    const unknownModel = registeredModel ? "" : modelId
+    const impactModel = registeredModel
+      ? modelId
+      : config?.proxyModel?.trim() || "gpt-5.6-luna"
     const impacts: ImpactsOutput = llmImpacts({
       provider: ecoProvider,
-      modelName: modelId,
+      modelName: impactModel,
       outputTokenCount: outputTokens,
       requestLatency: latencySec,
       ...(config?.electricityMixZone ? { electricity_mix_zone: config.electricityMixZone } : {}),
     })
 
     if (impacts.hasErrors) {
-      console.warn(
+      warn(
+        config,
         `[EcoLogits] Impacts unavailable for ${providerId}/${modelId}: ${impacts.errors
           ?.map((e) => (e instanceof Error ? e.message : String(e)))
           .join(", ")}`,
@@ -100,13 +132,10 @@ export async function logLlmImpacts(
     const gwpKg = valueToNumber(impacts.gwp?.value)
     const adpeKg = valueToNumber(impacts.adpe?.value)
     const wcfLiters = valueToNumber(impacts.wcf?.value)
-
-    const row = `${new Date().toISOString()},${providerId},${modelId},${inputTokens},${outputTokens},${energyKwh},${gwpKg},${adpeKg},${wcfLiters}\n`
-
+    const row = `${new Date().toISOString()},${providerId},${impactModel},${inputTokens},${outputTokens},${energyKwh},${gwpKg},${adpeKg},${wcfLiters},${unknownModel}\n`
     fs.appendFileSync(csvPath, row, { encoding: "utf-8" })
-    console.log(`[EcoLogits] Metrics written → ${csvPath}`)
   } catch (err) {
-    console.warn(`[EcoLogits] Logging failed: ${err}`)
+    warn(config, `[EcoLogits] Logging failed: ${err}`)
   }
 }
 
@@ -184,6 +213,3 @@ export function wrapApiHandler<T extends ClineApiHandlerLike>(
 
   return handler
 }
-
-
-

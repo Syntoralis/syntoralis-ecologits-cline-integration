@@ -48,16 +48,25 @@ bun install
 bun run package
 ```
 
-The compiled bundle is generated in `cline-source/apps/vscode/dist/extension.js`.
+The command runs checks, builds the production bundle, and creates
+`cline-syntoralis-<version>.vsix` in `cline-source/apps/vscode`. Runtime code is
+bundled into `dist/extension.js`; VSCE skips dependency enumeration so workspace
+files outside the extension are not included.
 
 ### Step 3 — Install in VS Code
 
-1. Close all VS Code windows
-2. Replace the existing extension folder:
+To install the generated package directly:
+
+```bash
+code --install-extension cline-syntoralis-<version>.vsix
+```
+
+Alternatively, close all VS Code windows and replace the existing extension folder:
+1. Replace the existing extension folder:
    - **Windows**: `%USERPROFILE%\.vscode\extensions\saoudrizwan.claude-dev-*`
    - **macOS/Linux**: `~/.vscode/extensions/saoudrizwan.claude-dev-*`
-3. Copy the contents of `cline-source/apps/vscode` into this folder
-4. Restart VS Code
+2. Copy the contents of `cline-source/apps/vscode` into this folder
+3. Restart VS Code
 
 ## Usage
 

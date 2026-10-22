@@ -54,7 +54,8 @@ function patchSdkApiHandler(targetDir) {
   const firstImportIdx = content.indexOf("import ")
   content =
     content.slice(0, firstImportIdx) +
-    'import { wrapApiHandler, type ApiStreamChunk } from "@/services/ecologits-wrapper"\n\n' +
+    'import { wrapApiHandler, type ApiStreamChunk } from "@/services/ecologits-wrapper"\n' +
+    'import { Logger } from "@shared/services/Logger"\n\n' +
     content.slice(firstImportIdx)
 
   const returnHandlerIdx = content.indexOf("\treturn handler\n}", content.indexOf("handler.getModel = () =>"))
@@ -64,7 +65,11 @@ function patchSdkApiHandler(targetDir) {
 
   const wrapperBlock = `\t/* ===== EcoLogits wrapper ===== */\n\tconst originalCreateMessage = handler.createMessage.bind(handler)\n\thandler.createMessage = function (\n\t\tsystemPrompt: string,\n\t\tmessages: import("@cline/shared").Message[],\n\t\ttools?: import("@cline/shared").ToolDefinition[],\n): ApiStream {\n\t\tconst startTime = Date.now()\n\t\tconst generator = originalCreateMessage(systemPrompt, messages, tools)\n\t\tconst modelInfo = handler.getModel()\n\n\t\tasync function* wrappedGenerator(): AsyncGenerator<ApiStreamChunk> {\n\t\t\tlet inputTokens = 0\n\t\t\tlet outputTokens = 0\n\n\t\t\tfor await (const chunk of generator) {\n\t\t\t\tif (chunk.type === "usage") {\n\t\t\t\t\tinputTokens = chunk.inputTokens\n\t\t\t\t\toutputTokens = chunk.outputTokens\n\t\t\t\t}\n\t\t\t\tyield chunk as ApiStreamChunk\n\t\t\t}\n\n\t\t\tconst requestLatency = (Date.now() - startTime) / 1000\n\t\t\tconst { logLlmImpacts } = await import("@/services/ecologits-wrapper")\n\t\t\tlogLlmImpacts(\n\t\t\t\tmodelInfo.providerId ?? providerConfig.providerId,\n\t\t\t\tmodelInfo.id,\n\t\t\t\tinputTokens,\n\t\t\t\toutputTokens,\n\t\t\t\trequestLatency,\n\t\t\t).catch(() => {})\n\t\t}\n\n\t\tconst stream = wrappedGenerator() as ApiStream\n\t\tif ((generator as any).id) {\n\t\t\tstream.id = (generator as any).id\n\t\t}\n\t\treturn stream\n\t}\n\t/* ===== /EcoLogits wrapper ===== */\n\n`
 
-  content = content.slice(0, returnHandlerIdx) + wrapperBlock + content.slice(returnHandlerIdx)
+  const loggedWrapperBlock = wrapperBlock.replace(
+    "\t\t\t\trequestLatency,\n\t\t\t).catch(() => {})",
+    "\t\t\t\trequestLatency,\n\t\t\t\t{ logger: Logger },\n\t\t\t).catch(() => {})",
+  )
+  content = content.slice(0, returnHandlerIdx) + loggedWrapperBlock + content.slice(returnHandlerIdx)
   fs.writeFileSync(handlerPath, content, "utf-8")
   console.log("[PATCH] sdk-api-handler.ts modifié")
 }
@@ -83,6 +88,12 @@ function patchPanelTitle(clinePkgPath) {
   if (pkg.contributes?.configuration?.title === "Cline") {
     pkg.contributes.configuration.title = "Cline-Syntoralis"
     console.log("[PATCH] Titre de configuration renommé: Cline → Cline-Syntoralis")
+  }
+  const packageCommand = "bun run check-types && bun run lint && bun run build:production && vsce package --no-dependencies"
+  if (pkg.scripts?.package !== packageCommand) {
+    pkg.scripts ??= {}
+    pkg.scripts.package = packageCommand
+    console.log("[PATCH] Action package configurée pour générer le VSIX")
   }
   fs.writeFileSync(clinePkgPath, JSON.stringify(pkg, null, "\t") + "\n", "utf-8")
 }
