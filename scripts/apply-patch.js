@@ -88,7 +88,7 @@ function patchPanelTitle(clinePkgPath) {
 }
 
 function copySyntoralisLogo(targetDir) {
-  const srcFile = path.join(__dirname, "..", "cline-source", "apps", "vscode", "webview-ui", "src", "assets", "SyntoralisLogo.tsx")
+  const srcFile = path.join(__dirname, "templates", "SyntoralisLogo.tsx")
   const destDir = path.join(targetDir, "apps", "vscode", "webview-ui", "src", "assets")
   const destFile = path.join(destDir, "SyntoralisLogo.tsx")
   if (!fs.existsSync(destDir)) {

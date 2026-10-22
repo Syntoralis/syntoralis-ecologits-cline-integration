@@ -38,6 +38,7 @@ The script:
 2. Adds the `@ecologits/ecologits.js` dependency
 3. Copies the TypeScript wrapper into Cline's source tree
 4. Patches `sdk-api-handler.ts` to intercept LLM streams
+5. Applies the Syntoralis logo and panel branding
 
 ### Step 2 — Compile the extension
 
