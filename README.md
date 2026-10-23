@@ -1,42 +1,46 @@
-# ecologits-cline-integration
+# syntoralis-ecologits-cline-integration
 
-Wrapper [EcoLogits](https://github.com/mlco2/ecologits) pour l'extension Cline (VS Code).  
-Mesure et logue automatiquement l'empreinte carbone de **chaque appel API LLM** au format CSV.
+Wrapper for [EcoLogits](https://github.com/mlco2/ecologits) for the Cline VS Code extension. Automatically measures and logs the carbon footprint of **every LLM API call** in CSV format.
 
-## Métriques enregistrées
+## Recorded metrics
 
-| Colonne CSV | Description | Unité |
-|-------------|-------------|-------|
-| `timestamp` | Horodatage ISO 8601 | — |
-| `provider` | Fournisseur LLM utilisé (anthropic, openai, cline…) | — |
-| `model` | Identifiant du modèle | — |
-| `input_tokens` | Tokens en entrée (prompt) | tokens |
-| `output_tokens` | Tokens générés (completion) | tokens |
-| `energy_kwh` | Consommation énergétique | kWh |
-| `gwp_kgco2eq` | Potential de Réchauffement Global | kg CO₂ eq |
-| `adpe_kgsbeq` | Potentiel d'Épuisement des Ressources Minérales | kg Sb eq |
-| `wcf_m3` | Empreinte Eau | m³ |
+| CSV column | Description | Unit |
+|------------|-------------|------|
+| `timestamp` | ISO 8601 timestamp | — |
+| `provider` | LLM provider used (anthropic, openai, cline…) | — |
+| `model` | Model identifier | — |
+| `input_tokens` | Input tokens (prompt) | tokens |
+| `output_tokens` | Generated tokens (completion) | tokens |
+| `energy_kwh` | Energy consumption | kWh |
+| `gwp_kgco2eq` | Global Warming Potential | kg CO₂ eq |
+| `adpe_kgsbeq` | Abiotic Depletion Potential for Elements | kg Sb eq |
+| `wcf_l` | Water Consumption Footprint | L |
 
-## Installation rapide
+## Electricity mix configuration
 
-### Prérequis
+By default, EcoLogits uses the global electricity mix (**WOR**). You can specify a different zone (e.g. `FRA`, `DE`, `US`) via the `cline.ecologits.electricityMixZone` setting. This affects the GWP/ADPe/PE impact factors per kWh used for the estimation.
+
+## Quick installation
+
+### Prerequisites
 - [Node.js ≥ 18](https://nodejs.org)
-- [Bun](https://bun.sh) (ou npm pour une installation manuelle)
+- [Bun](https://bun.sh) (or npm for manual installation)
 
-### Étape 1 — Cloner Cline et appliquer le patch
+### Step 1 — Clone Cline and apply the patch
 
 ```bash
-cd ecologits-cline-integration
+cd syntoralis-ecologits-cline-integration
 node scripts/apply-patch.js
 ```
 
-Le script :
-1. Clone `https://github.com/cline/cline.git` dans `./cline-source` (ou utilise un dossier existant)
-2. Ajoute la dépendance `@ecologits/ecologits.js`
-3. Copie le wrapper TypeScript dans l'arbre source de Cline
-4. Patche `sdk-api-handler.ts` pour intercepter les streams LLM
+The script:
+1. Clones `https://github.com/cline/cline.git` into `./cline-source` (or uses an existing folder)
+2. Adds the `@ecologits/ecologits.js` dependency
+3. Copies the TypeScript wrapper into Cline's source tree
+4. Patches `sdk-api-handler.ts` to intercept LLM streams
+5. Applies the Syntoralis logo and panel branding
 
-### Étape 2 — Compiler l'extension
+### Step 2 — Compile the extension
 
 ```bash
 cd cline-source/apps/vscode
@@ -44,39 +48,49 @@ bun install
 bun run package
 ```
 
-Le bundle compilé est généré dans `cline-source/apps/vscode/dist/extension.js`.
+The command runs checks, builds the production bundle, and creates
+`cline-syntoralis-<version>.vsix` in `cline-source/apps/vscode`. Runtime code is
+bundled into `dist/extension.js`; VSCE skips dependency enumeration so workspace
+files outside the extension are not included.
 
-### Étape 3 — Installer dans VS Code
+### Step 3 — Install in VS Code
 
-1. Ferme toutes les fenêtres VS Code
-2. Remplace le dossier de l'extension existante :
-   - **Windows** : `%USERPROFILE%\.vscode\extensions\saoudrizwan.claude-dev-*`
-   - **macOS/Linux** : `~/.vscode/extensions/saoudrizwan.claude-dev-*`
-3. Copie le contenu de `cline-source/apps/vscode` dans ce dossier
-4. Relance VS Code
+To install the generated package directly:
 
-## Utilisation
-
-Dès que Cline émet un appel LLM, une ligne est ajoutée au fichier :
-
-```
-%USERPROFILE%\ecologits-cline-log.csv   (Windows)
-~/ecologits-cline-log.csv              (macOS/Linux)
+```bash
+code --install-extension cline-syntoralis-<version>.vsix
 ```
 
-Vous pouvez modifier ce chemin via la variable d'environnement `ECOLOGITS_CSV_PATH`.
+Alternatively, close all VS Code windows and replace the existing extension folder:
+1. Replace the existing extension folder:
+   - **Windows**: `%USERPROFILE%\.vscode\extensions\saoudrizwan.claude-dev-*`
+   - **macOS/Linux**: `~/.vscode/extensions/saoudrizwan.claude-dev-*`
+2. Copy the contents of `cline-source/apps/vscode` into this folder
+3. Restart VS Code
+
+## Usage
+
+As soon as Cline makes an LLM call, a line is added to the file:
+
+```
+%USERPROFILE%\syntoralis-ecologits-cline-log.csv   (Windows)
+~/syntoralis-ecologits-cline-log.csv              (macOS/Linux)
+```
+
+You can change this path via the `ECOLOGITS_CSV_PATH` environment variable.
 
 ## Architecture
 
-- **`src/ecologits-wrapper.ts`** — Wrapper générique autour du `ApiHandler` Cline. Capture le chunk `usage` du stream (input/output tokens) et la latence, puis appelle `llmImpacts()` du SDK `@ecologits/ecologits.js`.
-- **`scripts/apply-patch.js`** — Automatise l'injection du wrapper dans les sources de Cline.
-- **Aucune dépendance Python requise** : utilise directement le port TypeScript officiel d'EcoLogits (`@ecologits/ecologits.js`).
+- **`src/ecologits-wrapper.ts`** — Generic wrapper around Cline's `ApiHandler`. Captures the `usage` stream chunk (input/output tokens) and latency, then calls `llmImpacts()` from the `@ecologits/ecologits.js` SDK.
+- **`scripts/apply-patch.js`** — Automates injecting the wrapper into Cline's sources.
+- **No Python dependency required**: uses the official TypeScript port of EcoLogits (`@ecologits/ecologits.js`) directly.
 
-## Désinstallation / Restauration
+## Uninstallation / Restoration
 
-Pour revenir à Cline d'origine :
+To revert to the original Cline:
+
 ```bash
 rm -rf cline-source
 ```
-Puis réinstallez Cline depuis le marketplace VS Code.
-# cline-syntoralis
+
+Then reinstall Cline from the VS Code Marketplace.

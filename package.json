@@ -1,7 +1,7 @@
 {
-  "name": "ecologits-cline-integration",
+  "name": "syntoralis-ecologits-cline-integration",
   "version": "1.0.0",
-  "description": "Wrapper EcoLogits pour Cline — mesure et logue l'empreinte carbone de chaque appel API LLM",
+  "description": "EcoLogits wrapper for Cline — measures and logs the carbon footprint of every LLM API call",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -29,3 +29,4 @@
     "typescript": "^5.3.0"
   }
 }
+
