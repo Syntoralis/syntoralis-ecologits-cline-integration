@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react"
+import { useState, useCallback, useMemo, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -35,6 +35,7 @@ interface EcologitsStatsData {
   }
   models: string[]
   periods: string[]
+  csvPath: string
 }
 
 interface EcologitsStatsProps {
@@ -68,11 +69,10 @@ const EcologitsStats = ({ onClose }: EcologitsStatsProps) => {
     PLATFORM_CONFIG.postMessage({
       type: "open_ecologits_stats",
       groupBy,
-      modelFilter: modelFilter || undefined,
     })
-  }, [groupBy, modelFilter])
+  }, [groupBy])
 
-  useCallback(() => {
+  useEffect(() => {
     const handler = (event: MessageEvent) => {
       const message = event.data
       if (message && message.type === "ecologits_stats") {
@@ -86,6 +86,10 @@ const EcologitsStats = ({ onClose }: EcologitsStatsProps) => {
     window.addEventListener("message", handler)
     return () => window.removeEventListener("message", handler)
   }, [])
+
+  useEffect(() => {
+    requestStats()
+  }, [requestStats])
 
   const filteredRows = useMemo(() => {
     if (!stats) return []
@@ -101,7 +105,7 @@ const EcologitsStats = ({ onClose }: EcologitsStatsProps) => {
   }, [stats])
 
   const displayTotals = useMemo(() => {
-    if (!stats) return stats?.totals ?? null
+    if (!stats) return null
     if (modelFilter) {
       const filtered = stats.rows.filter((row) => row.model === modelFilter)
       return filtered.reduce(
@@ -116,6 +120,17 @@ const EcologitsStats = ({ onClose }: EcologitsStatsProps) => {
         }),
         {
           inputTokens: 0,
+          outputTokens: 0,
+          energyKwh: 0,
+          gwpKg: 0,
+          adpeKg: 0,
+          wcfLiters: 0,
+          count: 0,
+        },
+      )
+    }
+    return stats.totals
+  }, [stats, modelFilter])
 
   if (PLATFORM_CONFIG.type !== PlatformType.VSCODE) {
     return null
@@ -211,7 +226,7 @@ const EcologitsStats = ({ onClose }: EcologitsStatsProps) => {
                       {filteredRows.length === 0 ? (
                         <tr>
                           <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
-                            No data available
+                            No statistics found in {stats.csvPath}
                           </td>
                         </tr>
                       ) : (
@@ -248,14 +263,3 @@ const EcologitsStats = ({ onClose }: EcologitsStatsProps) => {
 }
 
 export default EcologitsStats
-          outputTokens: 0,
-          energyKwh: 0,
-          gwpKg: 0,
-          adpeKg: 0,
-          wcfLiters: 0,
-          count: 0,
-        },
-      )
-    }
-    return stats.totals
-  }, [stats, modelFilter])

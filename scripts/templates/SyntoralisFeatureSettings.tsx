@@ -1,7 +1,5 @@
 import { Button } from "@/components/ui/button"
 import { PlatformType, PLATFORM_CONFIG } from "@/config/platform.config"
-import { useState } from "react"
-import EcologitsStats from "./EcologitsStats"
 
 const settings = [
 	{
@@ -23,8 +21,6 @@ const settings = [
 ]
 
 const SyntoralisFeatureSettings = () => {
-	const [showStats, setShowStats] = useState(false)
-
 	if (PLATFORM_CONFIG.type !== PlatformType.VSCODE) {
 		return null
 	}
@@ -55,16 +51,7 @@ const SyntoralisFeatureSettings = () => {
 							variant="secondary">
 							Open EcoLogits settings in VS Code
 						</Button>
-						<Button
-							onClick={() => setShowStats(true)}
-							size="sm"
-							variant="outline">
-							View Statistics
-						</Button>
 					</div>
-					{showStats && (
-						<EcologitsStats onClose={() => setShowStats(false)} />
-					)}
 				</div>
 			</div>
 		</div>

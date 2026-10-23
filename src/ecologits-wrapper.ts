@@ -168,9 +168,10 @@ export interface EcologitsStatsData {
   }
   models: string[]
   periods: string[]
+  csvPath: string
 }
 
-function parseCsvRow(line: string): {
+type ParsedCsvRow = {
   timestamp: string
   provider: string
   model: string
@@ -180,20 +181,91 @@ function parseCsvRow(line: string): {
   gwpKg: number
   adpeKg: number
   wcfLiters: number
-} | null {
-  const cols = line.split(",")
-  if (cols.length < 10) return null
-  const [timestamp, provider, model, inputTokens, outputTokens, energyKwh, gwpKg, adpeKg, wcfLiters] = cols
+}
+
+type CsvColumnIndexes = Record<keyof ParsedCsvRow, number>
+
+const DEFAULT_CSV_COLUMNS: CsvColumnIndexes = {
+  timestamp: 0,
+  provider: 1,
+  model: 2,
+  inputTokens: 3,
+  outputTokens: 4,
+  energyKwh: 5,
+  gwpKg: 6,
+  adpeKg: 7,
+  wcfLiters: 8,
+}
+
+function parseCsvColumns(line: string): string[] {
+  const columns: string[] = []
+  let column = ""
+  let quoted = false
+
+  for (let i = 0; i < line.length; i++) {
+    const character = line[i]
+    if (character === '"') {
+      if (quoted && line[i + 1] === '"') {
+        column += '"'
+        i++
+      } else {
+        quoted = !quoted
+      }
+    } else if (character === "," && !quoted) {
+      columns.push(column)
+      column = ""
+    } else {
+      column += character
+    }
+  }
+  columns.push(column)
+  return columns
+}
+
+function getCsvColumnIndexes(header: string[]): CsvColumnIndexes | null {
+  const normalizedHeader = header.map((column) => column.trim().toLowerCase().replace(/^\uFEFF/, ""))
+  const aliases: Record<keyof ParsedCsvRow, string[]> = {
+    timestamp: ["timestamp", "date", "datetime"],
+    provider: ["provider", "provider_id"],
+    model: ["model", "model_id", "model_name"],
+    inputTokens: ["input_tokens", "input tokens", "prompt_tokens"],
+    outputTokens: ["output_tokens", "output tokens", "completion_tokens"],
+    energyKwh: ["energy_kwh", "energy (kwh)", "energy"],
+    gwpKg: ["gwp_kgco2eq", "gwp_kg_co2eq", "gwp_kg", "gwp"],
+    adpeKg: ["adpe_kgsbeq", "adpe_kg_sbeq", "adpe_kg", "adpe"],
+    wcfLiters: ["wcf_l", "wcf_liters", "water_liters", "water"],
+  }
+  const indexes = {} as CsvColumnIndexes
+
+  for (const [key, names] of Object.entries(aliases) as [keyof ParsedCsvRow, string[]][]) {
+    const index = normalizedHeader.findIndex((column) => names.includes(column))
+    if (index < 0) return null
+    indexes[key] = index
+  }
+  return indexes
+}
+
+function parseCsvRow(line: string, columns: CsvColumnIndexes): ParsedCsvRow | null {
+  const values = parseCsvColumns(line)
+  if (values.length <= Math.max(...Object.values(columns))) return null
+  const timestamp = values[columns.timestamp].trim()
+  const model = values[columns.model].trim()
+  if (!model || Number.isNaN(new Date(timestamp).getTime())) return null
+  const metric = (index: number) => {
+    const value = Number.parseFloat(values[index].trim())
+    return Number.isFinite(value) ? value : 0
+  }
+
   return {
     timestamp,
-    provider,
+    provider: values[columns.provider],
     model,
-    inputTokens: Number.parseFloat(inputTokens) || 0,
-    outputTokens: Number.parseFloat(outputTokens) || 0,
-    energyKwh: Number.parseFloat(energyKwh) || 0,
-    gwpKg: Number.parseFloat(gwpKg) || 0,
-    adpeKg: Number.parseFloat(adpeKg) || 0,
-    wcfLiters: Number.parseFloat(wcfLiters) || 0,
+    inputTokens: metric(columns.inputTokens),
+    outputTokens: metric(columns.outputTokens),
+    energyKwh: metric(columns.energyKwh),
+    gwpKg: metric(columns.gwpKg),
+    adpeKg: metric(columns.adpeKg),
+    wcfLiters: metric(columns.wcfLiters),
   }
 }
 
@@ -234,16 +306,21 @@ export function getEcologitsStats(
   }
 
   if (!require("fs").existsSync(csvPath)) {
-    return { rows: [], totals, models: [], periods: [] }
+    return { rows: [], totals, models: [], periods: [], csvPath }
   }
 
   const content = require("fs").readFileSync(csvPath, "utf-8")
-  const lines = content.split(/\r?\n/)
-  // Skip header line
-  for (let i = 1; i < lines.length; i++) {
+  const lines = content.replace(/^\uFEFF/, "").split(/\r?\n/)
+  const firstLine = lines[0] ?? ""
+  const headerIndexes = getCsvColumnIndexes(parseCsvColumns(firstLine))
+  const columns = headerIndexes ?? DEFAULT_CSV_COLUMNS
+  const startIndex = headerIndexes ? 1 : 0
+  const aggregatedRows = new Map<string, EcologitsStatsRow>()
+
+  for (let i = startIndex; i < lines.length; i++) {
     const line = lines[i].trim()
     if (!line) continue
-    const row = parseCsvRow(line)
+    const row = parseCsvRow(line, columns)
     if (!row) continue
     if (modelFilter && row.model !== modelFilter) continue
 
@@ -259,7 +336,8 @@ export function getEcologitsStats(
     totals.wcfLiters += row.wcfLiters
     totals.count += 1
 
-    const existing = rows.find((r) => r.period === period && r.model === row.model)
+    const key = `${period}\0${row.model}`
+    const existing = aggregatedRows.get(key)
     if (existing) {
       existing.inputTokens += row.inputTokens
       existing.outputTokens += row.outputTokens
@@ -269,7 +347,7 @@ export function getEcologitsStats(
       existing.wcfLiters += row.wcfLiters
       existing.count += 1
     } else {
-      rows.push({
+      const aggregate = {
         period,
         model: row.model,
         inputTokens: row.inputTokens,
@@ -279,7 +357,9 @@ export function getEcologitsStats(
         adpeKg: row.adpeKg,
         wcfLiters: row.wcfLiters,
         count: 1,
-      })
+      }
+      aggregatedRows.set(key, aggregate)
+      rows.push(aggregate)
     }
   }
 
@@ -294,6 +374,7 @@ export function getEcologitsStats(
     totals,
     models: Array.from(modelSet).sort(),
     periods: Array.from(periodSet).sort().reverse(),
+    csvPath,
   }
 }
 
