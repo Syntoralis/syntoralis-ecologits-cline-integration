@@ -139,6 +139,164 @@ export async function logLlmImpacts(
   }
 }
 
+/**
+ * Statistics row aggregated by period (month or year) and model.
+ */
+export interface EcologitsStatsRow {
+  period: string // "YYYY-MM" or "YYYY"
+  model: string
+  inputTokens: number
+  outputTokens: number
+  energyKwh: number
+  gwpKg: number
+  adpeKg: number
+  wcfLiters: number
+  count: number
+}
+
+/** Aggregated statistics returned to the webview UI. */
+export interface EcologitsStatsData {
+  rows: EcologitsStatsRow[]
+  totals: {
+    inputTokens: number
+    outputTokens: number
+    energyKwh: number
+    gwpKg: number
+    adpeKg: number
+    wcfLiters: number
+    count: number
+  }
+  models: string[]
+  periods: string[]
+}
+
+function parseCsvRow(line: string): {
+  timestamp: string
+  provider: string
+  model: string
+  inputTokens: number
+  outputTokens: number
+  energyKwh: number
+  gwpKg: number
+  adpeKg: number
+  wcfLiters: number
+} | null {
+  const cols = line.split(",")
+  if (cols.length < 10) return null
+  const [timestamp, provider, model, inputTokens, outputTokens, energyKwh, gwpKg, adpeKg, wcfLiters] = cols
+  return {
+    timestamp,
+    provider,
+    model,
+    inputTokens: Number.parseFloat(inputTokens) || 0,
+    outputTokens: Number.parseFloat(outputTokens) || 0,
+    energyKwh: Number.parseFloat(energyKwh) || 0,
+    gwpKg: Number.parseFloat(gwpKg) || 0,
+    adpeKg: Number.parseFloat(adpeKg) || 0,
+    wcfLiters: Number.parseFloat(wcfLiters) || 0,
+  }
+}
+
+function getPeriodKey(timestamp: string, groupBy: "month" | "year"): string {
+  const date = new Date(timestamp)
+  if (groupBy === "year") {
+    return date.getFullYear().toString()
+  }
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  return `${date.getFullYear()}-${month}`
+}
+
+/**
+ * Reads the EcoLogits CSV log file and computes cumulative statistics
+ * grouped by period (month or year), optionally filtered by model.
+ *
+ * @param csvPath    Path to the CSV log file
+ * @param groupBy    "month" or "year"
+ * @param modelFilter Optional model id to filter by (undefined = all models)
+ * @returns Aggregated statistics data
+ */
+export function getEcologitsStats(
+  csvPath: string,
+  groupBy: "month" | "year" = "month",
+  modelFilter?: string,
+): EcologitsStatsData {
+  const rows: EcologitsStatsRow[] = []
+  const modelSet = new Set<string>()
+  const periodSet = new Set<string>()
+  let totals = {
+    inputTokens: 0,
+    outputTokens: 0,
+    energyKwh: 0,
+    gwpKg: 0,
+    adpeKg: 0,
+    wcfLiters: 0,
+    count: 0,
+  }
+
+  if (!require("fs").existsSync(csvPath)) {
+    return { rows: [], totals, models: [], periods: [] }
+  }
+
+  const content = require("fs").readFileSync(csvPath, "utf-8")
+  const lines = content.split(/\r?\n/)
+  // Skip header line
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+    const row = parseCsvRow(line)
+    if (!row) continue
+    if (modelFilter && row.model !== modelFilter) continue
+
+    const period = getPeriodKey(row.timestamp, groupBy)
+    periodSet.add(period)
+    modelSet.add(row.model)
+
+    totals.inputTokens += row.inputTokens
+    totals.outputTokens += row.outputTokens
+    totals.energyKwh += row.energyKwh
+    totals.gwpKg += row.gwpKg
+    totals.adpeKg += row.adpeKg
+    totals.wcfLiters += row.wcfLiters
+    totals.count += 1
+
+    const existing = rows.find((r) => r.period === period && r.model === row.model)
+    if (existing) {
+      existing.inputTokens += row.inputTokens
+      existing.outputTokens += row.outputTokens
+      existing.energyKwh += row.energyKwh
+      existing.gwpKg += row.gwpKg
+      existing.adpeKg += row.adpeKg
+      existing.wcfLiters += row.wcfLiters
+      existing.count += 1
+    } else {
+      rows.push({
+        period,
+        model: row.model,
+        inputTokens: row.inputTokens,
+        outputTokens: row.outputTokens,
+        energyKwh: row.energyKwh,
+        gwpKg: row.gwpKg,
+        adpeKg: row.adpeKg,
+        wcfLiters: row.wcfLiters,
+        count: 1,
+      })
+    }
+  }
+
+  // Sort rows by period (descending) then model
+  rows.sort((a, b) => {
+    if (a.period !== b.period) return b.period.localeCompare(a.period)
+    return a.model.localeCompare(b.model)
+  })
+
+  return {
+    rows,
+    totals,
+    models: Array.from(modelSet).sort(),
+    periods: Array.from(periodSet).sort().reverse(),
+  }
+}
+
 /** Minimal type for a Cline stream chunk */
 export interface ApiStreamChunk {
   type: string

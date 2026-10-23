@@ -41,6 +41,20 @@ function copyWrapper(targetDir) {
   console.log("[PATCH] ecologits-wrapper.ts copié dans Cline")
 }
 
+function copyEcologitsStats(targetDir) {
+  const srcFile = path.join(__dirname, "templates", "EcologitsStats.tsx")
+  const destDir = path.join(
+    targetDir, "apps", "vscode", "webview-ui", "src",
+    "components", "stats",
+  )
+  const destFile = path.join(destDir, "EcologitsStats.tsx")
+  if (!fs.existsSync(destDir)) {
+    fs.mkdirSync(destDir, { recursive: true })
+  }
+  fs.copyFileSync(srcFile, destFile)
+  console.log("[PATCH] EcologitsStats.tsx copié dans Cline")
+}
+
 function patchSdkApiHandler(targetDir) {
   const handlerPath = path.join(
     targetDir, "apps", "vscode", "src", "sdk", "sdk-api-handler.ts",
@@ -239,6 +253,7 @@ function patchSyntoralisFeatureSettings(targetDir) {
     fs.copyFileSync(templatePath, sectionComponentPath)
     console.log("[PATCH] SyntoralisFeatureSettings.tsx copié dans Cline")
   }
+  copyEcologitsStats(targetDir)
 
   let sectionContent = fs.readFileSync(sectionPath, "utf-8")
   if (!sectionContent.includes("SyntoralisFeatureSettings")) {
@@ -262,17 +277,37 @@ function patchSyntoralisFeatureSettings(targetDir) {
   }
 
   let webviewMessage = fs.readFileSync(webviewMessagePath, "utf-8")
-  if (!webviewMessage.includes('"open_ecologits_settings"')) {
+  if (!webviewMessage.includes('"open_ecologits_stats"')) {
     const messageType = 'type: "grpc_request" | "grpc_request_cancel"'
     if (!webviewMessage.includes(messageType)) {
       throw new Error("Impossible de localiser le type de message WebviewMessage")
     }
     webviewMessage = webviewMessage.replace(
       messageType,
-      'type: "grpc_request" | "grpc_request_cancel" | "open_ecologits_settings"',
+      'type: "grpc_request" | "grpc_request_cancel" | "open_ecologits_settings" | "open_ecologits_stats"',
     )
     fs.writeFileSync(webviewMessagePath, webviewMessage, "utf-8")
-    console.log("[PATCH] Message d'ouverture des réglages EcoLogits ajouté")
+    console.log("[PATCH] Messages EcoLogits (settings + stats) ajoutés à WebviewMessage")
+  }
+
+  // Patch ExtensionMessage.ts to add ecologits_stats response type
+  const extensionMessagePath = path.join(
+    targetDir, "apps", "vscode", "src", "shared", "ExtensionMessage.ts",
+  )
+  if (fs.existsSync(extensionMessagePath)) {
+    let extensionMessage = fs.readFileSync(extensionMessagePath, "utf-8")
+    if (!extensionMessage.includes('"ecologits_stats"')) {
+      extensionMessage = extensionMessage.replace(
+        'type: "grpc_response"',
+        'type: "grpc_response" | "ecologits_stats"',
+      )
+      extensionMessage = extensionMessage.replace(
+        'grpc_response?: GrpcResponse',
+        'grpc_response?: GrpcResponse\n  stats?: any\n  error?: string',
+      )
+      fs.writeFileSync(extensionMessagePath, extensionMessage, "utf-8")
+      console.log("[PATCH] Type ecologits_stats ajouté à ExtensionMessage")
+    }
   }
 
   let webviewProvider = fs.readFileSync(webviewProviderPath, "utf-8")
@@ -280,7 +315,7 @@ function patchSyntoralisFeatureSettings(targetDir) {
     '"@id:cline.ecologits"',
     '"@ext:syntoralis.cline-syntoralis"',
   )
-  if (!webviewProvider.includes('case "open_ecologits_settings"')) {
+  if (!webviewProvider.includes('case "open_ecologits_stats"')) {
     const defaultCase = '\t\t\tdefault: {\n\t\t\t\tLogger.error("Received unhandled WebviewMessage type:", JSON.stringify(message))'
     if (!webviewProvider.includes(defaultCase)) {
       throw new Error("Impossible de localiser le dispatch WebviewMessage")
@@ -291,9 +326,23 @@ function patchSyntoralisFeatureSettings(targetDir) {
         '\t\t\t\tawait vscode.commands.executeCommand("workbench.action.openSettings", "@ext:syntoralis.cline-syntoralis")\n' +
         "\t\t\t\tbreak\n" +
         "\t\t\t}\n" +
+        '\t\t\tcase "open_ecologits_stats": {\n' +
+        '\t\t\t\ttry {\n' +
+        '\t\t\t\t\tconst fs = require("fs")\n' +
+        '\t\t\t\t\tconst path = require("path")\n' +
+        '\t\t\t\t\tconst { getEcologitsStats } = await import("@/services/ecologits-wrapper")\n' +
+        '\t\t\t\t\tconst csvPath = process.env.ECOLOGITS_CSV_PATH || path.join(require("os").homedir(), "syntoralis-ecologits-cline-log.csv")\n' +
+        '\t\t\t\t\tconst stats = getEcologitsStats(csvPath, message.groupBy, message.modelFilter)\n' +
+        '\t\t\t\t\tawait postMessageToWebview({ type: "ecologits_stats", stats })\n' +
+        '\t\t\t\t} catch (err) {\n' +
+        '\t\t\t\t\tLogger.error("[EcoLogits] Stats failed:", err)\n' +
+        '\t\t\t\t\tawait postMessageToWebview({ type: "ecologits_stats_error", error: String(err) })\n' +
+        '\t\t\t\t}\n' +
+        "\t\t\t\tbreak\n" +
+        "\t\t\t}\n" +
         defaultCase,
     )
-    console.log("[PATCH] Action hôte d'ouverture des réglages EcoLogits ajoutée")
+    console.log("[PATCH] Action hôte EcoLogits stats ajoutée")
   }
   fs.writeFileSync(webviewProviderPath, webviewProvider, "utf-8")
 }
