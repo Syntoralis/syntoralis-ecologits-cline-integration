@@ -276,6 +276,10 @@ function patchSyntoralisFeatureSettings(targetDir) {
   }
 
   let webviewProvider = fs.readFileSync(webviewProviderPath, "utf-8")
+  webviewProvider = webviewProvider.replace(
+    '"@id:cline.ecologits"',
+    '"@ext:syntoralis.cline-syntoralis"',
+  )
   if (!webviewProvider.includes('case "open_ecologits_settings"')) {
     const defaultCase = '\t\t\tdefault: {\n\t\t\t\tLogger.error("Received unhandled WebviewMessage type:", JSON.stringify(message))'
     if (!webviewProvider.includes(defaultCase)) {
@@ -284,14 +288,14 @@ function patchSyntoralisFeatureSettings(targetDir) {
     webviewProvider = webviewProvider.replace(
       defaultCase,
       '\t\t\tcase "open_ecologits_settings": {\n' +
-        '\t\t\t\tawait vscode.commands.executeCommand("workbench.action.openSettings", "@id:cline.ecologits")\n' +
+        '\t\t\t\tawait vscode.commands.executeCommand("workbench.action.openSettings", "@ext:syntoralis.cline-syntoralis")\n' +
         "\t\t\t\tbreak\n" +
         "\t\t\t}\n" +
         defaultCase,
     )
-    fs.writeFileSync(webviewProviderPath, webviewProvider, "utf-8")
     console.log("[PATCH] Action hôte d'ouverture des réglages EcoLogits ajoutée")
   }
+  fs.writeFileSync(webviewProviderPath, webviewProvider, "utf-8")
 }
 
 function main() {
