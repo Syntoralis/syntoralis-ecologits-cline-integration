@@ -66,10 +66,12 @@ function patchSdkApiHandler(targetDir) {
   }
 
   const firstImportIdx = content.indexOf("import ")
+  const vscodeImport = content.includes('from "vscode"') ? "" : 'import * as vscode from "vscode"\n'
   content =
     content.slice(0, firstImportIdx) +
     'import { wrapApiHandler, type ApiStreamChunk } from "@/services/ecologits-wrapper"\n' +
     'import { Logger } from "@shared/services/Logger"\n\n' +
+    vscodeImport +
     content.slice(firstImportIdx)
 
   const returnHandlerIdx = content.indexOf("\treturn handler\n}", content.indexOf("handler.getModel = () =>"))
@@ -81,7 +83,11 @@ function patchSdkApiHandler(targetDir) {
 
   const loggedWrapperBlock = wrapperBlock.replace(
     "\t\t\t\trequestLatency,\n\t\t\t).catch(() => {})",
-    "\t\t\t\trequestLatency,\n\t\t\t\t{ logger: Logger },\n\t\t\t).catch(() => {})",
+    '\t\t\t\trequestLatency,\n\t\t\t\t{\n' +
+      '\t\t\t\t\tcsvPath: vscode.workspace.getConfiguration("cline").get<{ csvPath?: string }>("ecologits")?.csvPath,\n' +
+      "\t\t\t\t\tlogger: Logger,\n" +
+      "\t\t\t\t},\n" +
+      "\t\t\t).catch(() => {})",
   )
   content = content.slice(0, returnHandlerIdx) + loggedWrapperBlock + content.slice(returnHandlerIdx)
   fs.writeFileSync(handlerPath, content, "utf-8")
@@ -102,6 +108,32 @@ function patchPanelTitle(clinePkgPath) {
   if (pkg.contributes?.configuration?.title === "Cline") {
     pkg.contributes.configuration.title = "Cline-Syntoralis"
     console.log("[PATCH] Titre de configuration renommé: Cline → Cline-Syntoralis")
+  }
+  const configuration = pkg.contributes?.configuration
+  if (configuration && typeof configuration === "object" && !Array.isArray(configuration)) {
+    configuration.properties ??= {}
+    Object.assign(configuration.properties, {
+      "cline.ecologits.enabled": configuration.properties["cline.ecologits.enabled"] ?? {
+        type: "boolean",
+        default: true,
+        description: "Enable EcoLogits carbon footprint logging for LLM API calls",
+      },
+      "cline.ecologits.csvPath": configuration.properties["cline.ecologits.csvPath"] ?? {
+        type: "string",
+        default: null,
+        description: "Path to the CSV file where EcoLogits metrics are written (default: ~/syntoralis-ecologits-cline-log.csv)",
+      },
+      "cline.ecologits.proxyModel": configuration.properties["cline.ecologits.proxyModel"] ?? {
+        type: "string",
+        default: "gpt-5.6-luna",
+        description: "OpenAI model ID used by EcoLogits when the selected model is not registered",
+      },
+      "cline.ecologits.electricityMixZone": configuration.properties["cline.ecologits.electricityMixZone"] ?? {
+        type: "string",
+        default: null,
+        description: "EcoLogits electricity mix zone (e.g. FRA, DE, US)",
+      },
+    })
   }
   const packageCommand = "bun run check-types && bun run lint && bun run build:production && vsce package --no-dependencies"
   if (pkg.scripts?.package !== packageCommand) {
@@ -336,6 +368,14 @@ function patchSyntoralisFeatureSettings(targetDir) {
     '"@id:cline.ecologits"',
     '"@ext:syntoralis.cline-syntoralis"',
   )
+  if (!webviewProvider.includes('get<{ csvPath?: string }>("ecologits")')) {
+    webviewProvider = webviewProvider.replace(
+      /^([ \t]*)const csvPath =(?:\r?\n[ \t]*)?process\.env\.ECOLOGITS_CSV_PATH \|\| path\.join\(require\("os"\)\.homedir\(\), "syntoralis-ecologits-cline-log\.csv"\)/m,
+      (_match, indent) =>
+        `${indent}const configuredCsvPath = vscode.workspace.getConfiguration("cline").get<{ csvPath?: string }>("ecologits")?.csvPath?.trim()\n` +
+        `${indent}const csvPath = configuredCsvPath || process.env.ECOLOGITS_CSV_PATH || path.join(require("os").homedir(), "syntoralis-ecologits-cline-log.csv")`,
+    )
+  }
   let settingsCaseFound = false
   webviewProvider = webviewProvider.replace(
     /\t\t\tcase "open_ecologits_settings": \{\r?\n\t\t\t\tawait vscode\.commands\.executeCommand\([^\r\n]+\)\r?\n\t\t\t\tbreak\r?\n\t\t\t\}\r?\n/g,
@@ -364,7 +404,8 @@ function patchSyntoralisFeatureSettings(targetDir) {
         '\t\t\t\t\tconst fs = require("fs")\n' +
         '\t\t\t\t\tconst path = require("path")\n' +
         '\t\t\t\t\tconst { getEcologitsStats } = await import("@/services/ecologits-wrapper")\n' +
-        '\t\t\t\t\tconst csvPath = process.env.ECOLOGITS_CSV_PATH || path.join(require("os").homedir(), "syntoralis-ecologits-cline-log.csv")\n' +
+        '\t\t\t\t\tconst configuredCsvPath = vscode.workspace.getConfiguration("cline").get<{ csvPath?: string }>("ecologits")?.csvPath?.trim()\n' +
+        '\t\t\t\t\tconst csvPath = configuredCsvPath || process.env.ECOLOGITS_CSV_PATH || path.join(require("os").homedir(), "syntoralis-ecologits-cline-log.csv")\n' +
         '\t\t\t\t\tconst stats = getEcologitsStats(csvPath, message.groupBy, message.modelFilter)\n' +
         '\t\t\t\t\tawait postMessageToWebview({ type: "ecologits_stats", stats })\n' +
         '\t\t\t\t} catch (err) {\n' +
