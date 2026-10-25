@@ -79,9 +79,56 @@ When Cline completes an instrumented model operation with usage metrics, the imp
 
 Set `cline.ecologits.csvPath` in VS Code to choose a path. If it is unset, the `ECOLOGITS_CSV_PATH` environment variable is used; otherwise, the default location above is used.
 
+## Viewing statistics
+
+The EcoLogits integration appends one row per instrumented LLM call to a CSV file. You can view and analyze the statistics in several ways.
+
+### Option 1 — View statistics in the chat (Account)
+
+1. Open Cline in VS Code.
+2. Click **Account** in the chat panel.
+3. Click the **View statistics** button.
+
+The statistics view reads the same EcoLogits CSV log (`cline.ecologits.csvPath`, or the default `~/syntoralis-ecologits-cline-log.csv`) and displays aggregated totals and per-model breakdowns directly in the chat.
+
+### Option 2 — Command-line quick stats
+
+**PowerShell (Windows):**
+
+```powershell
+$csv = "$env:USERPROFILE\syntoralis-ecologits-cline-log.csv"
+Import-Csv $csv | Measure-Object -Property energy_kwh, gwp_kgco2eq, wcf_l, input_tokens, output_tokens -Sum
+```
+
+**Bash (macOS/Linux):**
+
+```bash
+csv="$HOME/syntoralis-ecologits-cline-log.csv"
+awk -F, 'NR>1 {e+=$6; g+=$7; w+=$9; i+=$4; o+=$5; n++} END {print "Requests:", n; print "Input tokens:", i; print "Output tokens:", o; print "Energy (kWh):", e; print "CO2eq (kg):", g; print "Water (L):", w}' "$csv"
+```
+
+### Option 3 — Programmatic access
+
+The `getEcologitsStats()` function exported from `src/ecologits-wrapper.ts` reads the CSV log and returns aggregated statistics grouped by period (month or year) and model, including totals for energy, CO₂, water, ADP, and token counts:
+
+```typescript
+import { getEcologitsStats } from "./src/ecologits-wrapper"
+
+const stats = getEcologitsStats(
+  "%USERPROFILE%\\syntoralis-ecologits-cline-log.csv", // or your configured csvPath
+  "month", // or "year"
+  "claude-sonnet-4-20250514", // optional model filter; omit for all models
+)
+
+console.log("Totals:", stats.totals)
+console.log("By period & model:", stats.rows)
+console.log("Models:", stats.models)
+console.log("Periods:", stats.periods)
+```
+
 ## Architecture
 
-- **`src/ecologits-wrapper.ts`** — Wraps Cline's API handler, reads usage metrics from model responses, and calls `llmImpacts()` from `@ecologits/ecologits.js`.
+- **`src/ecologits-wrapper.ts`** — Wraps Cline's API handler, reads usage metrics from model responses, calls `llmImpacts()` from `@ecologits/ecologits.js`, and exports `getEcologitsStats()` for reading aggregated statistics from the CSV log.
 - **`scripts/apply-patch.js`** — Adds the dependency and integration to a Cline source checkout and applies Syntoralis branding.
 - **No Python dependency required** — the integration uses EcoLogits' TypeScript package directly.
 
