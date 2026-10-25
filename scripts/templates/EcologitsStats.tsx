@@ -49,6 +49,14 @@ const formatNumber = (value: number): string => {
   })
 }
 
+const formatAdpe = (value: number): string => {
+  if (!value) return "0.00"
+  return value.toLocaleString(undefined, {
+    notation: "scientific",
+    maximumSignificantDigits: 4,
+  })
+}
+
 const formatInteger = (value: number): string => {
   return value.toLocaleString(undefined, {
     minimumFractionDigits: 0,
@@ -192,7 +200,7 @@ const EcologitsStats = ({ onClose }: EcologitsStatsProps) => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                   <div className="p-4 rounded-md border border-editor-widget-border/50 bg-editor-widget-border/10">
                     <div className="text-xs text-muted-foreground uppercase tracking-wider">Energy (kWh)</div>
                     <div className="text-xl font-mono font-semibold text-foreground">{formatNumber(displayTotals?.energyKwh || 0)}</div>
@@ -200,6 +208,10 @@ const EcologitsStats = ({ onClose }: EcologitsStatsProps) => {
                   <div className="p-4 rounded-md border border-editor-widget-border/50 bg-editor-widget-border/10">
                     <div className="text-xs text-muted-foreground uppercase tracking-wider">GWP (kg CO₂eq)</div>
                     <div className="text-xl font-mono font-semibold text-foreground">{formatNumber(displayTotals?.gwpKg || 0)}</div>
+                  </div>
+                  <div className="p-4 rounded-md border border-editor-widget-border/50 bg-editor-widget-border/10">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wider">ADPe (kg Sbeq)</div>
+                    <div className="text-xl font-mono font-semibold text-foreground">{formatAdpe(displayTotals?.adpeKg || 0)}</div>
                   </div>
                   <div className="p-4 rounded-md border border-editor-widget-border/50 bg-editor-widget-border/10">
                     <div className="text-xs text-muted-foreground uppercase tracking-wider">Water (L)</div>
@@ -239,7 +251,7 @@ const EcologitsStats = ({ onClose }: EcologitsStatsProps) => {
                             <td className="px-4 py-3 text-sm text-right text-foreground">{formatInteger(row.outputTokens)}</td>
                             <td className="px-4 py-3 text-sm text-right text-foreground">{formatNumber(row.energyKwh)}</td>
                             <td className="px-4 py-3 text-sm text-right text-foreground">{formatNumber(row.gwpKg)}</td>
-                            <td className="px-4 py-3 text-sm text-right text-foreground">{formatNumber(row.adpeKg)}</td>
+                            <td className="px-4 py-3 text-sm text-right text-foreground">{formatAdpe(row.adpeKg)}</td>
                             <td className="px-4 py-3 text-sm text-right text-foreground">{formatNumber(row.wcfLiters)}</td>
                           </tr>
                         ))

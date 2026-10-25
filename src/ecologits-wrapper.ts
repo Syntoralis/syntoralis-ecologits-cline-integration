@@ -70,13 +70,19 @@ function getEcoLogitsProvider(providerId: string): string {
   return PROVIDER_MAP[providerId] || "openai"
 }
 
-function warn(config: EcoLogitsConfig | undefined, message: string): void {
+async function warn(config: EcoLogitsConfig | undefined, message: string): Promise<void> {
   if (config?.logger) {
     config.logger.warn(message)
     return
   }
 
-  process.emitWarning(message)
+  try {
+    // @ts-ignore - module only exists in the patched Cline workspace
+    const { Logger } = await import("@/shared/services/Logger")
+    Logger.warn(message)
+  } catch {
+    process.emitWarning(message, { type: "EcoLogits" })
+  }
 }
 
 /**
@@ -119,12 +125,14 @@ export async function logLlmImpacts(
     })
 
     if (impacts.hasErrors) {
-      warn(
+      await warn(
         config,
         `[EcoLogits] Impacts unavailable for ${providerId}/${modelId}: ${impacts.errors
           ?.map((e) => (e instanceof Error ? e.message : String(e)))
           .join(", ")}`,
       )
+      const row = `${new Date().toISOString()},${providerId},${impactModel},${inputTokens},${outputTokens},,,,,\n`
+      fs.appendFileSync(csvPath, row, { encoding: "utf-8" })
       return
     }
 
@@ -135,7 +143,9 @@ export async function logLlmImpacts(
     const row = `${new Date().toISOString()},${providerId},${impactModel},${inputTokens},${outputTokens},${energyKwh},${gwpKg},${adpeKg},${wcfLiters},${unknownModel}\n`
     fs.appendFileSync(csvPath, row, { encoding: "utf-8" })
   } catch (err) {
-    warn(config, `[EcoLogits] Logging failed: ${err}`)
+    await warn(config, `[EcoLogits] Logging failed: ${err}`)
+    const row = `${new Date().toISOString()},${providerId},${modelId},${inputTokens},${outputTokens},,,,,\n`
+    fs.appendFileSync(csvPath, row, { encoding: "utf-8" })
   }
 }
 
