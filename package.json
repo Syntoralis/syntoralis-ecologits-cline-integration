@@ -8,7 +8,10 @@
     "build": "tsc",
     "watch": "tsc --watch",
     "patch-cline": "node scripts/apply-patch.js",
-    "build-cline": "node scripts/build-cline.js"
+    "build-cline": "node scripts/build-cline.js",
+    "scan-secrets": "node scripts/scan-secrets.js --staged",
+    "install-hooks": "node scripts/install-hooks.js",
+    "prepare": "node scripts/install-hooks.js"
   },
   "keywords": [
     "ecologits",

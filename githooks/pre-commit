@@ -1,0 +1,3 @@
+#!/bin/sh
+# Pre-commit: scan staged changes for secrets
+node scripts/scan-secrets.js --staged || exit 1
