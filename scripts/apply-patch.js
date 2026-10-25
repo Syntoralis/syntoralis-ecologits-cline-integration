@@ -41,6 +41,20 @@ function copyWrapper(targetDir) {
   console.log("[PATCH] ecologits-wrapper.ts copié dans Cline")
 }
 
+function copyEcologitsStats(targetDir) {
+  const srcFile = path.join(__dirname, "templates", "EcologitsStats.tsx")
+  const destDir = path.join(
+    targetDir, "apps", "vscode", "webview-ui", "src",
+    "components", "stats",
+  )
+  const destFile = path.join(destDir, "EcologitsStats.tsx")
+  if (!fs.existsSync(destDir)) {
+    fs.mkdirSync(destDir, { recursive: true })
+  }
+  fs.copyFileSync(srcFile, destFile)
+  console.log("[PATCH] EcologitsStats.tsx copié dans Cline")
+}
+
 function patchSdkApiHandler(targetDir) {
   const handlerPath = path.join(
     targetDir, "apps", "vscode", "src", "sdk", "sdk-api-handler.ts",
@@ -52,10 +66,12 @@ function patchSdkApiHandler(targetDir) {
   }
 
   const firstImportIdx = content.indexOf("import ")
+  const vscodeImport = content.includes('from "vscode"') ? "" : 'import * as vscode from "vscode"\n'
   content =
     content.slice(0, firstImportIdx) +
     'import { wrapApiHandler, type ApiStreamChunk } from "@/services/ecologits-wrapper"\n' +
     'import { Logger } from "@shared/services/Logger"\n\n' +
+    vscodeImport +
     content.slice(firstImportIdx)
 
   const returnHandlerIdx = content.indexOf("\treturn handler\n}", content.indexOf("handler.getModel = () =>"))
@@ -67,7 +83,11 @@ function patchSdkApiHandler(targetDir) {
 
   const loggedWrapperBlock = wrapperBlock.replace(
     "\t\t\t\trequestLatency,\n\t\t\t).catch(() => {})",
-    "\t\t\t\trequestLatency,\n\t\t\t\t{ logger: Logger },\n\t\t\t).catch(() => {})",
+    '\t\t\t\trequestLatency,\n\t\t\t\t{\n' +
+      '\t\t\t\t\tcsvPath: vscode.workspace.getConfiguration("cline").get<{ csvPath?: string }>("ecologits")?.csvPath,\n' +
+      "\t\t\t\t\tlogger: Logger,\n" +
+      "\t\t\t\t},\n" +
+      "\t\t\t).catch(() => {})",
   )
   content = content.slice(0, returnHandlerIdx) + loggedWrapperBlock + content.slice(returnHandlerIdx)
   fs.writeFileSync(handlerPath, content, "utf-8")
@@ -88,6 +108,32 @@ function patchPanelTitle(clinePkgPath) {
   if (pkg.contributes?.configuration?.title === "Cline") {
     pkg.contributes.configuration.title = "Cline-Syntoralis"
     console.log("[PATCH] Titre de configuration renommé: Cline → Cline-Syntoralis")
+  }
+  const configuration = pkg.contributes?.configuration
+  if (configuration && typeof configuration === "object" && !Array.isArray(configuration)) {
+    configuration.properties ??= {}
+    Object.assign(configuration.properties, {
+      "cline.ecologits.enabled": configuration.properties["cline.ecologits.enabled"] ?? {
+        type: "boolean",
+        default: true,
+        description: "Enable EcoLogits carbon footprint logging for LLM API calls",
+      },
+      "cline.ecologits.csvPath": configuration.properties["cline.ecologits.csvPath"] ?? {
+        type: "string",
+        default: null,
+        description: "Path to the CSV file where EcoLogits metrics are written (default: ~/syntoralis-ecologits-cline-log.csv)",
+      },
+      "cline.ecologits.proxyModel": configuration.properties["cline.ecologits.proxyModel"] ?? {
+        type: "string",
+        default: "gpt-5.6-luna",
+        description: "OpenAI model ID used by EcoLogits when the selected model is not registered",
+      },
+      "cline.ecologits.electricityMixZone": configuration.properties["cline.ecologits.electricityMixZone"] ?? {
+        type: "string",
+        default: null,
+        description: "EcoLogits electricity mix zone (e.g. FRA, DE, US)",
+      },
+    })
   }
   const packageCommand = "bun run check-types && bun run lint && bun run build:production && vsce package --no-dependencies"
   if (pkg.scripts?.package !== packageCommand) {
@@ -235,10 +281,15 @@ function patchSyntoralisFeatureSettings(targetDir) {
     "VscodeWebviewProvider.ts",
   )
 
-  if (!fs.existsSync(sectionComponentPath)) {
+  const templateContent = fs.readFileSync(templatePath, "utf-8")
+  const currentContent = fs.existsSync(sectionComponentPath)
+    ? fs.readFileSync(sectionComponentPath, "utf-8")
+    : null
+  if (currentContent !== templateContent) {
     fs.copyFileSync(templatePath, sectionComponentPath)
-    console.log("[PATCH] SyntoralisFeatureSettings.tsx copié dans Cline")
+    console.log("[PATCH] SyntoralisFeatureSettings.tsx synchronisé depuis le template")
   }
+  copyEcologitsStats(targetDir)
 
   let sectionContent = fs.readFileSync(sectionPath, "utf-8")
   if (!sectionContent.includes("SyntoralisFeatureSettings")) {
@@ -262,17 +313,54 @@ function patchSyntoralisFeatureSettings(targetDir) {
   }
 
   let webviewMessage = fs.readFileSync(webviewMessagePath, "utf-8")
-  if (!webviewMessage.includes('"open_ecologits_settings"')) {
+  if (!webviewMessage.includes('"open_ecologits_stats"')) {
     const messageType = 'type: "grpc_request" | "grpc_request_cancel"'
     if (!webviewMessage.includes(messageType)) {
       throw new Error("Impossible de localiser le type de message WebviewMessage")
     }
     webviewMessage = webviewMessage.replace(
       messageType,
-      'type: "grpc_request" | "grpc_request_cancel" | "open_ecologits_settings"',
+      'type: "grpc_request" | "grpc_request_cancel" | "open_ecologits_settings" | "open_ecologits_stats"',
     )
     fs.writeFileSync(webviewMessagePath, webviewMessage, "utf-8")
-    console.log("[PATCH] Message d'ouverture des réglages EcoLogits ajouté")
+    console.log("[PATCH] Messages EcoLogits (settings + stats) ajoutés à WebviewMessage")
+  }
+  if (!webviewMessage.includes('groupBy?: "month" | "year"')) {
+    const cancelProperty = "\tgrpc_request_cancel?: GrpcCancel"
+    if (!webviewMessage.includes(cancelProperty)) {
+      throw new Error("Impossible de localiser les propriétés de WebviewMessage")
+    }
+    webviewMessage = webviewMessage.replace(
+      cancelProperty,
+      `${cancelProperty}\n\tgroupBy?: "month" | "year"\n\tmodelFilter?: string`,
+    )
+    fs.writeFileSync(webviewMessagePath, webviewMessage, "utf-8")
+  }
+
+  // Patch ExtensionMessage.ts to add ecologits_stats response type
+  const extensionMessagePath = path.join(
+    targetDir, "apps", "vscode", "src", "shared", "ExtensionMessage.ts",
+  )
+  if (fs.existsSync(extensionMessagePath)) {
+    let extensionMessage = fs.readFileSync(extensionMessagePath, "utf-8")
+    if (!extensionMessage.includes('"ecologits_stats"')) {
+      extensionMessage = extensionMessage.replace(
+        'type: "grpc_response"',
+        'type: "grpc_response" | "ecologits_stats"',
+      )
+      extensionMessage = extensionMessage.replace(
+        'grpc_response?: GrpcResponse',
+        'grpc_response?: GrpcResponse\n  stats?: any\n  error?: string',
+      )
+      console.log("[PATCH] Type ecologits_stats ajouté à ExtensionMessage")
+    }
+    if (!extensionMessage.includes('"ecologits_stats_error"')) {
+      extensionMessage = extensionMessage.replace(
+        '"ecologits_stats"',
+        '"ecologits_stats" | "ecologits_stats_error"',
+      )
+    }
+    fs.writeFileSync(extensionMessagePath, extensionMessage, "utf-8")
   }
 
   let webviewProvider = fs.readFileSync(webviewProviderPath, "utf-8")
@@ -280,22 +368,91 @@ function patchSyntoralisFeatureSettings(targetDir) {
     '"@id:cline.ecologits"',
     '"@ext:syntoralis.cline-syntoralis"',
   )
-  if (!webviewProvider.includes('case "open_ecologits_settings"')) {
+  if (!webviewProvider.includes('get<{ csvPath?: string }>("ecologits")')) {
+    webviewProvider = webviewProvider.replace(
+      /^([ \t]*)const csvPath =(?:\r?\n[ \t]*)?process\.env\.ECOLOGITS_CSV_PATH \|\| path\.join\(require\("os"\)\.homedir\(\), "syntoralis-ecologits-cline-log\.csv"\)/m,
+      (_match, indent) =>
+        `${indent}const configuredCsvPath = vscode.workspace.getConfiguration("cline").get<{ csvPath?: string }>("ecologits")?.csvPath?.trim()\n` +
+        `${indent}const csvPath = configuredCsvPath || process.env.ECOLOGITS_CSV_PATH || path.join(require("os").homedir(), "syntoralis-ecologits-cline-log.csv")`,
+    )
+  }
+  let settingsCaseFound = false
+  webviewProvider = webviewProvider.replace(
+    /\t\t\tcase "open_ecologits_settings": \{\r?\n\t\t\t\tawait vscode\.commands\.executeCommand\([^\r\n]+\)\r?\n\t\t\t\tbreak\r?\n\t\t\t\}\r?\n/g,
+    (settingsCase) => {
+      if (settingsCaseFound) return ""
+      settingsCaseFound = true
+      return settingsCase
+    },
+  )
+  if (!webviewProvider.includes('case "open_ecologits_stats"')) {
     const defaultCase = '\t\t\tdefault: {\n\t\t\t\tLogger.error("Received unhandled WebviewMessage type:", JSON.stringify(message))'
     if (!webviewProvider.includes(defaultCase)) {
       throw new Error("Impossible de localiser le dispatch WebviewMessage")
     }
+    const settingsCase = webviewProvider.includes('case "open_ecologits_settings"')
+      ? ""
+      : '\t\t\tcase "open_ecologits_settings": {\n' +
+        '\t\t\t\tawait vscode.commands.executeCommand("workbench.action.openSettings", "@ext:syntoralis.cline-syntoralis")\n' +
+        "\t\t\t\tbreak\n" +
+        "\t\t\t}\n"
     webviewProvider = webviewProvider.replace(
       defaultCase,
-      '\t\t\tcase "open_ecologits_settings": {\n' +
-        '\t\t\t\tawait vscode.commands.executeCommand("workbench.action.openSettings", "@ext:syntoralis.cline-syntoralis")\n' +
+      settingsCase +
+        '\t\t\tcase "open_ecologits_stats": {\n' +
+        '\t\t\t\ttry {\n' +
+        '\t\t\t\t\tconst fs = require("fs")\n' +
+        '\t\t\t\t\tconst path = require("path")\n' +
+        '\t\t\t\t\tconst { getEcologitsStats } = await import("@/services/ecologits-wrapper")\n' +
+        '\t\t\t\t\tconst configuredCsvPath = vscode.workspace.getConfiguration("cline").get<{ csvPath?: string }>("ecologits")?.csvPath?.trim()\n' +
+        '\t\t\t\t\tconst csvPath = configuredCsvPath || process.env.ECOLOGITS_CSV_PATH || path.join(require("os").homedir(), "syntoralis-ecologits-cline-log.csv")\n' +
+        '\t\t\t\t\tconst stats = getEcologitsStats(csvPath, message.groupBy, message.modelFilter)\n' +
+        '\t\t\t\t\tawait postMessageToWebview({ type: "ecologits_stats", stats })\n' +
+        '\t\t\t\t} catch (err) {\n' +
+        '\t\t\t\t\tLogger.error("[EcoLogits] Stats failed:", err)\n' +
+        '\t\t\t\t\tawait postMessageToWebview({ type: "ecologits_stats_error", error: String(err) })\n' +
+        '\t\t\t\t}\n' +
         "\t\t\t\tbreak\n" +
         "\t\t\t}\n" +
         defaultCase,
     )
-    console.log("[PATCH] Action hôte d'ouverture des réglages EcoLogits ajoutée")
+    console.log("[PATCH] Action hôte EcoLogits stats ajoutée")
   }
   fs.writeFileSync(webviewProviderPath, webviewProvider, "utf-8")
+}
+
+function patchAccountPanelStats(targetDir) {
+  const webviewDir = path.join(targetDir, "apps", "vscode", "webview-ui", "src")
+  const templatePath = path.join(__dirname, "templates", "EcologitsAccountStats.tsx")
+  const componentPath = path.join(webviewDir, "components", "account", "EcologitsAccountStats.tsx")
+  const accountViewPath = path.join(webviewDir, "components", "account", "AccountView.tsx")
+  const templateContent = fs.readFileSync(templatePath, "utf-8")
+
+  if (!fs.existsSync(componentPath) || fs.readFileSync(componentPath, "utf-8") !== templateContent) {
+    fs.copyFileSync(templatePath, componentPath)
+    console.log("[PATCH] EcologitsAccountStats.tsx synchronisé dans Cline")
+  }
+
+  let accountView = fs.readFileSync(accountViewPath, "utf-8")
+  if (!accountView.includes('import EcologitsAccountStats from "./EcologitsAccountStats"')) {
+    const importAnchor = 'import { AccountWelcomeView } from "./AccountWelcomeView"\n'
+    if (!accountView.includes(importAnchor)) {
+      throw new Error("Impossible de localiser les imports dans AccountView.tsx")
+    }
+    accountView = accountView.replace(
+      importAnchor,
+      `${importAnchor}import EcologitsAccountStats from "./EcologitsAccountStats"\n`,
+    )
+  }
+
+  if (!accountView.includes("<EcologitsAccountStats />")) {
+    const viewAnchor = '<div className="grow flex flex-col px-5 overflow-y-auto">\n'
+    if (!accountView.includes(viewAnchor)) {
+      throw new Error("Impossible de localiser le contenu du panneau Account")
+    }
+    accountView = accountView.replace(viewAnchor, `${viewAnchor}\t\t\t\t<EcologitsAccountStats />\n`)
+  }
+  fs.writeFileSync(accountViewPath, accountView, "utf-8")
 }
 
 function main() {
@@ -316,6 +473,7 @@ function main() {
   patchHomeHeader(targetDir)
   patchAboutSection(targetDir)
   patchSyntoralisFeatureSettings(targetDir)
+  patchAccountPanelStats(targetDir)
   console.log("\n========================================")
   console.log("  PATCH APPLIQUÉ AVEC SUCCÈS")
   console.log("========================================")

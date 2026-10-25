@@ -44,12 +44,14 @@ const SyntoralisFeatureSettings = () => {
 							</div>
 						))}
 					</dl>
-					<Button
-						onClick={() => PLATFORM_CONFIG.postMessage({ type: "open_ecologits_settings" })}
-						size="sm"
-						variant="secondary">
-						Open EcoLogits settings in VS Code
-					</Button>
+					<div className="flex items-center gap-2">
+						<Button
+							onClick={() => PLATFORM_CONFIG.postMessage({ type: "open_ecologits_settings" })}
+							size="sm"
+							variant="secondary">
+							Open EcoLogits settings in VS Code
+						</Button>
+					</div>
 				</div>
 			</div>
 		</div>
